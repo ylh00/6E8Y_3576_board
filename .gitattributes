@@ -1,1 +1,2 @@
+boards_design/新飞控1.eprj2 filter=lfs diff=lfs merge=lfs -text
 boards_design/FT1.eprj2 filter=lfs diff=lfs merge=lfs -text
