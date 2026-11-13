@@ -1,0 +1,25 @@
+// SPDX-License-Identifier: (GPL-2.0+ OR MIT)
+/*
+ * Copyright (c) 2024 Rockchip Electronics Co., Ltd.
+ *
+ */
+
+/dts-v1/;
+
+
+#define N_LED			1
+#define OTG0_TYPEC		1
+#define FF_GMAC0		1
+#define FF_GMAC1		1
+#define FF_WIFI_BT		1
+#define SDCARD			1
+
+#include "rk3576-firefly-ext-icore-3576q38.dtsi"
+#include "rk3576-firefly-ext-icore-3576q38-cam-sc3336.dtsi"
+
+/ {
+	model = "Firefly EXT-iCore-3576Q38 Linux";
+	compatible = "rockchip,rk3576-firefly-ext-icore-3576q38", "rockchip,rk3576";
+
+};
+

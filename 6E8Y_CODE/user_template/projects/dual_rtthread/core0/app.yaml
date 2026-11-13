@@ -1,0 +1,4 @@
+linked_project:
+  project_name: dual_rtthread/core1
+  project_path: ../core1
+  build_type: sec_core_img

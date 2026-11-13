@@ -1,0 +1,425 @@
+// SPDX-License-Identifier: (GPL-2.0+ OR MIT)
+/*
+ * Copyright (c) 2024 Rockchip Electronics Co., Ltd.
+ *
+ */
+
+#include "rk3576-firefly-common.dtsi"
+
+/*
+ * DP over Type-C 必需：告诉 dw_dp 本控制器走 DisplayPort Alt Mode
+ * （SVID 0xFF01），而不是当成固定 DP 口去等物理 HPD 脚。
+ * 缺这一行 → DP PHY 不上电、不读 DPCD、不做链路训练 → DP-1 永远 disconnected。
+ */
+&dp {
+	status = "okay";
+	svid = <0xff01>;
+};
+&dp0 {
+	status = "okay";
+};
+&dp0_in_vp0 {
+	status = "okay";
+};
+
+/{
+/* usb */
+	vcc_usb_host: vcc-usb-host {
+		status = "okay";
+		compatible = "regulator-fixed";
+		regulator-name = "vcc_usb_host";
+		regulator-boot-on;
+		regulator-always-on;
+		regulator-min-microvolt = <5000000>;
+		regulator-max-microvolt = <5000000>;
+		enable-active-high;
+	};
+
+#if N_LED 
+	firefly_leds: leds {
+                compatible = "gpio-leds";
+                status = "okay";
+
+                power_led: power-led { //yellow
+                        //label = ":sys";
+                        label = ":power";
+                        linux,default-trigger = "ir-power-click";
+                        default-state = "on";
+                        gpios = <&gpio0 RK_PD2 GPIO_ACTIVE_HIGH>;
+                        pinctrl-names = "default";
+                        pinctrl-0 = <&led_power>;
+                };
+        };
+#endif
+
+#if SDCARD
+	sdmmc_pwr: sdmmc-pwr {
+		status = "okay";
+		compatible = "regulator-fixed";
+		regulator-name = "sdmmc_pwr";
+		regulator-min-microvolt = <3300000>;
+		regulator-max-microvolt = <3300000>;
+		regulator-boot-on;
+		regulator-always-on;
+		enable-active-high;
+		gpio = <&gpio0 RK_PB6 GPIO_ACTIVE_HIGH>;
+	};
+#endif
+
+	wifi_pwr_en: wifi-pwr-en {
+                compatible = "regulator-fixed";
+                regulator-name = "wifi_pwr_en";
+                regulator-min-microvolt = <3300000>;
+                regulator-max-microvolt = <3300000>;
+                regulator-boot-on;
+                regulator-always-on;
+                enable-active-high;
+                gpio = <&gpio2 RK_PB3 GPIO_ACTIVE_HIGH>;
+                pinctrl-names = "default";
+                pinctrl-0 = <&wifi_en>;
+        };
+
+	sdio_pwrseq: sdio-pwrseq {
+		compatible = "mmc-pwrseq-simple";
+		pinctrl-names = "default";
+		pinctrl-0 = <&wifi_poweren_gpio>;
+
+		/*
+		 * On the module itself this is one of these (depending
+		 * on the actual card populated):
+		 * - SDIO_RESET_L_WL_REG_ON
+		 * - PDN (power down when low)
+		 */
+		post-power-on-delay-ms = <200>;
+		reset-gpios = <&gpio2 RK_PB2 GPIO_ACTIVE_LOW>;
+		status = "okay";
+	};
+	
+	wireless-wlan {
+			compatible = "wlan-platdata";
+			rockchip,grf = <&sys_grf>;
+			//pinctrl-names = "default";
+			//pinctrl-0 = <&wifi_host_wake_irq>;
+			//wifi_chip_type = "AIC8800";
+			wifi_chip_type = "ap6256";
+			WIFI,host_wake_irq = <&gpio1 RK_PC6 GPIO_ACTIVE_HIGH>;
+			status = "okay";       
+	};                                                           
+
+	wireless-bluetooth {
+                compatible = "bluetooth-platdata";
+                //clocks = <&rk809 1>;
+                //clock-names = "ext_clock";
+                //wifi-bt-power-toggle;                                         
+                uart_rts_gpios = <&gpio2 RK_PB5 GPIO_ACTIVE_LOW>;      
+                pinctrl-names = "default", "rts_gpio";
+                pinctrl-0 = <&uart7m0_rtsn>;
+                pinctrl-1 = <&uart7_gpios>;                        
+
+		        BT,wake_gpio = <&gpio1 RK_PC2 GPIO_ACTIVE_HIGH>;
+                BT,wake_host_irq = <&gpio1 RK_PC3 GPIO_ACTIVE_HIGH>;
+
+                status = "okay";
+       };
+};
+
+&i2c11 {
+    status = "okay";
+
+    usbc0: husb311@4e {
+		status = "okay";
+		compatible = "hynetek,husb311";
+		reg = <0x4e>;
+		interrupt-parent = <&gpio0>;
+		interrupts = <RK_PD2 IRQ_TYPE_LEVEL_LOW>;
+		pinctrl-names = "default";
+		pinctrl-0 = <&usbc0_int>;
+		vbus-supply = <&vcc_sys>;
+		ports {
+			#address-cells = <1>;
+			#size-cells = <0>;
+
+			port@0 {
+				reg = <0>;
+				usbc0_role_sw: endpoint@0 {
+					remote-endpoint = <&usb_drd0_role_switch>;
+				};
+			};
+		};
+
+		usb_con: connector {
+			compatible = "usb-c-connector";
+			label = "USB-C";
+			data-role = "dual";
+			power-role = "dual";
+			try-power-role = "sink";
+			op-sink-microwatt = <1000000>;
+			sink-pdos =
+				<PDO_FIXED(5000, 1000, PDO_FIXED_USB_COMM)>;
+			source-pdos =
+				<PDO_FIXED(5000, 3000, PDO_FIXED_USB_COMM)>;
+			/*
+			 * DP Alt Mode 必需：TCPM 协商进入 DP alt mode 后，
+			 * 通过这个 phandle 找到并通知 DP 控制器启动输出。
+			 * 缺这一行 → 即使 PD 协商成功，DP 也不会被叫醒。
+			 */
+			mode-switch = <&dp>;
+
+			altmodes {
+				#address-cells = <1>;
+				#size-cells = <0>;
+
+				altmode@0 {
+					reg = <0>;
+					svid = <0xff01>;
+					vdo = <0xffffffff>;
+				};
+			};
+
+			ports {
+				#address-cells = <1>;
+				#size-cells = <0>;
+
+				port@0 {
+					reg = <0>;
+					usbc0_orien_sw: endpoint {
+						remote-endpoint = <&usbdp_phy_orientation_switch>;
+					};
+				};
+				port@1 {
+					reg = <1>;
+					dp_altmode_mux: endpoint {
+						remote-endpoint = <&usbdp_phy_dp_altmode_mux>;
+					};
+				};
+			};
+		};
+	};
+};
+
+
+#if OTG0_TYPEC
+&combphy0_ps {
+	status = "okay";
+};
+
+&u2phy0_otg {
+	rockchip,typec-vbus-det;
+	status = "okay";
+};
+
+&usbdp_phy {
+	orientation-switch;
+	svid = <0xff01>;
+	sbu1-dc-gpios = <&gpio0 RK_PC6 GPIO_ACTIVE_HIGH>;
+	sbu2-dc-gpios = <&gpio0 RK_PD0 GPIO_ACTIVE_HIGH>;
+	status = "okay";
+
+	port {
+		#address-cells = <1>;
+		#size-cells = <0>;
+
+		usbdp_phy_orientation_switch: endpoint@0 {
+			reg = <0>;
+			remote-endpoint = <&usbc0_orien_sw>;
+		};
+		usbdp_phy_dp_altmode_mux: endpoint@1 {
+			reg = <1>;
+			remote-endpoint = <&dp_altmode_mux>;
+		};
+	};
+};
+
+&usb_drd0_dwc3 {
+	dr_mode = "peripheral";
+	//usb-role-switch;
+	status = "okay";
+	port {
+		#address-cells = <1>;
+		#size-cells = <0>;
+		usb_drd0_role_switch: endpoint@0 {
+			reg = <0>;
+			remote-endpoint = <&usbc0_role_sw>;
+		};
+	};
+};
+
+&u2phy0 {
+	status = "okay";
+};
+
+&usbdp_phy_dp {
+	status = "okay";
+};
+
+&usbdp_phy_u3 {
+	status = "okay";
+};
+#endif
+
+&gmac0 {
+	/* Use rgmii-rxid mode to disable rx delay inside Soc */
+	phy-mode = "rgmii-rxid";
+	clock_in_out = "output";
+
+	snps,reset-gpio = <&gpio3 RK_PB0 GPIO_ACTIVE_LOW>;
+	snps,reset-active-low;
+	/* Reset time is 20ms, 100ms for rtl8211f */
+	snps,reset-delays-us = <0 20000 100000>;
+
+	pinctrl-names = "default";
+	pinctrl-0 = <&eth0m0_tx_bus2
+		     &eth0m0_rx_bus2
+		     &eth0m0_rgmii_clk
+		     &eth0m0_rgmii_bus>;
+
+	tx_delay = <0x21>;
+
+	status = "okay";
+	fixed-link {
+		speed = <1000>;
+		full-duplex;
+	};
+};
+
+#if FF_GMAC1
+&gmac1 {
+	status = "okay";
+        phy-mode = "rmii";
+        clock_in_out = "input";
+
+        snps,reset-gpio = <&gpio2 RK_PC3 GPIO_ACTIVE_LOW>;
+        snps,reset-active-low;
+        snps,reset-delays-us = <0 20000 150000>;
+
+	pinctrl-names = "default";
+	pinctrl-0 = <&eth1m0_miim
+		     &eth1m0_tx_bus2
+		     &eth1m0_rx_bus2
+		     &eth1m0_mclk>;
+        phy-handle = <&rmii_phy1>;
+
+};
+
+&mdio1 {
+	status = "okay";
+        rmii_phy1: phy@1 {
+		status = "okay";
+                compatible = "ethernet-phy-ieee802.3-c22";
+                reg = <0x1>;
+        };
+};
+#endif
+
+&sdio {
+	max-frequency = <200000000>;
+	supports-SDIO;	
+	no-sd;
+	no-mmc;
+	bus-width = <4>;
+	disable-wp;
+	cap-sd-highspeed;
+	cap-sdio-irq;
+	keep-power-in-suspend;
+	mmc-pwrseq = <&sdio_pwrseq>;
+	non-removable;
+	pinctrl-names = "default";
+	pinctrl-0 = <&sdmmc1m0_bus4 &sdmmc1m0_clk &sdmmc1m0_cmd>;
+	sd-uhs-sdr104;
+	status = "okay";
+};
+
+&uart7 {
+	pinctrl-names = "default";
+	pinctrl-0 = <&uart7m0_xfer &uart7m0_ctsn>;
+	status = "okay";
+};
+
+//keep power pin when suspend
+&rockchip_suspend {
+        rockchip,sleep-io-ret-config = <
+                (0
+                | RKPM_VCCIO3_RET_EN
+                | RKPM_VCCIO4_RET_EN
+                )
+        >;
+};
+
+&vdd_logic_s0 {
+	regulator-state-mem {
+		regulator-on-in-suspend;
+	};
+};
+
+// EXTENSION
+/* usb */
+&u2phy1_otg {
+	status = "okay";
+	phy-supply = <&vcc_usb_host>;
+};
+
+&combphy1_psu {
+        status = "okay";
+};
+
+&usb_drd1_dwc3 {
+        dr_mode = "host";
+        status = "okay";
+};
+
+&u2phy1 {
+        status = "okay";
+};
+
+/* uart10 */
+&uart10 {
+	pinctrl-names = "default";
+	pinctrl-0 = <&uart10m2_xfer>;
+	status = "okay";
+};
+
+/* spi1 */
+&spi1 {
+    status = "okay";
+    pinctrl-names = "default";
+    pinctrl-0 = <&spi1m2_csn0 &spi1m2_pins>;
+	num-cs = <1>;
+};
+
+&pinctrl {
+#if N_LED 
+	leds {
+                led_power: led-power {
+                        rockchip,pins = <0 RK_PD2 RK_FUNC_GPIO &pcfg_pull_none>;
+                };
+
+        };
+#endif
+
+#if OTG0_TYPEC
+	usb {
+		usbc0_int: usbc0-int {
+			rockchip,pins = <0 RK_PD2 RK_FUNC_GPIO &pcfg_pull_up>;
+		};
+	};
+#endif
+
+	wifi-pwr {
+		wifi_en: wifi-en {
+			rockchip,pins = <2 RK_PB3 RK_FUNC_GPIO &pcfg_pull_up>;
+		};
+	};
+        wireless-bluetooth {
+                uart7_gpios: uart7-gpios {
+                        rockchip,pins = <2 RK_PB5 RK_FUNC_GPIO &pcfg_pull_none>;
+                };
+        };
+
+        wireless-wlan {
+                wifi_poweren_gpio: wifi-poweren-gpio {
+                        rockchip,pins = <2 RK_PB2 RK_FUNC_GPIO &pcfg_pull_up>;
+                };
+        };
+
+
+};
